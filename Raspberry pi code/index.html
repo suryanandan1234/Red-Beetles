@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Car</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .container {
+            height: 100vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 180px;
+            gap: 16px;
+            padding: 16px;
+        }
+
+        /* Glass panel effect */
+        .panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(40px) saturate(180%);
+            -webkit-backdrop-filter: blur(40px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 
+                0 8px 32px 0 rgba(0, 0, 0, 0.37),
+                inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                transparent, 
+                rgba(255, 255, 255, 0.3), 
+                transparent);
+        }
+
+        /* Connection Status - Top Right Corner */
+        .connection-status {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            font-weight: 600;
+            z-index: 1000;
+            backdrop-filter: blur(20px);
+            transition: all 0.3s;
+        }
+
+        .connection-status.connected {
+            background: rgba(52, 211, 153, 0.2);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            color: #34d399;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(248, 113, 113, 0.2);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            color: #f87171;
+        }
+
+        /* Video Stream */
+        .video-panel .panel-content {
+            padding: 0;
+            height: 100%;
+        }
+
+        #videoStream {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 20px;
+        }
+
+        /* Path Canvas */
+        .path-panel .panel-content {
+            padding: 0;
+            height: 100%;
+        }
+
+        #pathCanvas {
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+        }
+
+        /* Bottom Controls */
+        .controls-panel {
+            grid-column: 1 / -1;
+        }
+
+        .controls-content {
+            padding: 20px 24px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 24px;
+            height: 100%;
+        }
+
+        /* Calibration Sliders */
+        .calibration-section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            justify-content: center;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .slider-group label {
+            font-size: 0.8em;
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            -webkit-appearance: none;
+            border-radius: 3px;
+            position: relative;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            cursor: pointer;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.5);
+            transition: all 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.7);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            cursor: pointer;
+            border: none;
+            border-radius: 50%;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.5);
+        }
+
+        .slider-value {
+            min-width: 42px;
+            text-align: right;
+            font-weight: 600;
+            color: #3b82f6;
+            font-size: 0.9em;
+        }
+
+        /* Button Guide */
+        .button-guide {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .btn-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .btn-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.95em;
+            flex-shrink: 0;
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-icon.a { background: linear-gradient(135deg, #34d399, #10b981); }
+        .btn-icon.b { background: linear-gradient(135deg, #f87171, #ef4444); }
+        .btn-icon.y { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        .btn-icon.dpad { background: linear-gradient(135deg, #f59e0b, #d97706); }
+
+        .btn-desc {
+            font-size: 0.75em;
+            line-height: 1.4;
+        }
+
+        .btn-desc strong {
+            display: block;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 2px;
+        }
+
+        .btn-desc span {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Reset Button */
+        .reset-btn {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, rgba(248, 113, 113, 0.2), rgba(239, 68, 68, 0.2));
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            border-radius: 10px;
+            color: #f87171;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.5px;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+
+        .reset-btn:hover {
+            background: linear-gradient(135deg, rgba(248, 113, 113, 0.3), rgba(239, 68, 68, 0.3));
+            border-color: rgba(248, 113, 113, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(248, 113, 113, 0.3);
+        }
+
+        .reset-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Glassmorphism glow effect */
+        @keyframes glow {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .panel::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .panel:hover::after {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting</div>
+    
+    <div class="container">
+        <!-- Camera Feed -->
+        <div class="panel video-panel">
+            <div class="panel-content">
+                <img id="videoStream" src="/video_feed" alt="Camera">
+            </div>
+        </div>
+
+        <!-- Path Visualization -->
+        <div class="panel path-panel">
+            <div class="panel-content">
+                <canvas id="pathCanvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="panel controls-panel">
+            <div class="controls-content">
+                <!-- Calibration Sliders -->
+                <div class="calibration-section">
+                    <div class="slider-group">
+                        <label>ROTATION CALIBRATION</label>
+                        <div class="slider-container">
+                            <input type="range" id="rotationSlider" min="0.1" max="5.0" step="0.1" value="1.0">
+                            <span class="slider-value" id="rotationValue">1.0</span>
+                        </div>
+                    </div>
+
+                    <div class="slider-group">
+                        <label>ZOOM LEVEL</label>
+                        <div class="slider-container">
+                            <input type="range" id="zoomSlider" min="0.1" max="3.0" step="0.1" value="1.0">
+                            <span class="slider-value" id="zoomValue">1.0</span>
+                        </div>
+                    </div>
+
+                    <div class="slider-group">
+                        <label>TURN SPEED</label>
+                        <div class="slider-container">
+                            <input type="range" id="turnSpeedSlider" min="0.1" max="3.0" step="0.1" value="1.0">
+                            <span class="slider-value" id="turnSpeedValue">1.0</span>
+                        </div>
+                    </div>
+
+                    <button class="reset-btn" onclick="resetPath()">RESET PATH</button>
+                </div>
+
+                <!-- Button Guide -->
+                <div class="button-guide">
+                    <div class="btn-item">
+                        <div class="btn-icon a">A</div>
+                        <div class="btn-desc">
+                            <strong>POINT A</strong>
+                            <span>Mark / Navigate</span>
+                        </div>
+                    </div>
+                    <div class="btn-item">
+                        <div class="btn-icon b">B</div>
+                        <div class="btn-desc">
+                            <strong>POINT B</strong>
+                            <span>Mark / Navigate</span>
+                        </div>
+                    </div>
+                    <div class="btn-item">
+                        <div class="btn-icon y">Y</div>
+                        <div class="btn-desc">
+                            <strong>FULL RESET</strong>
+                            <span>Clear all data</span>
+                        </div>
+                    </div>
+                    <div class="btn-item">
+                        <div class="btn-icon dpad">D-PAD</div>
+                        <div class="btn-desc">
+                            <strong>SYSTEM</strong>
+                            <span>Left: Restart</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('pathCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        function resizeCanvas() {
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        let pathPoints = [];
+        let carPosition = { x: 0, y: 0, angle: 0 };
+        let pointA = null;
+        let pointB = null;
+        let settings = {};
+
+        socket.on('connect', () => {
+            document.getElementById('connectionStatus').textContent = 'Connected';
+            document.getElementById('connectionStatus').className = 'connection-status connected';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('connectionStatus').textContent = 'Disconnected';
+            document.getElementById('connectionStatus').className = 'connection-status disconnected';
+        });
+
+        socket.on('initial_state', (data) => {
+            settings = data.settings || {};
+            carPosition = data.position || { x: 0, y: 0, angle: 0 };
+            pathPoints = data.path || [];
+            pointA = data.points?.A || null;
+            pointB = data.points?.B || null;
+            
+            updateSliders();
+            drawPath();
+        });
+
+        socket.on('car_update', (data) => {
+            if (data.position) {
+                carPosition = data.position;
+            }
+            if (data.path_point) {
+                pathPoints.push(data.path_point);
+                if (pathPoints.length > 5000) {
+                    pathPoints = pathPoints.slice(-5000);
+                }
+            }
+            drawPath();
+        });
+
+        socket.on('points_update', (data) => {
+            pointA = data.A || null;
+            pointB = data.B || null;
+            drawPath();
+        });
+
+        socket.on('full_reset', (data) => {
+            pathPoints = [];
+            carPosition = { x: 0, y: 0, angle: 0 };
+            pointA = null;
+            pointB = null;
+            drawPath();
+        });
+
+        function updateSliders() {
+            document.getElementById('rotationSlider').value = settings.rotation_calibration || 1.0;
+            document.getElementById('rotationValue').textContent = (settings.rotation_calibration || 1.0).toFixed(1);
+            
+            document.getElementById('zoomSlider').value = settings.zoom_level || 1.0;
+            document.getElementById('zoomValue').textContent = (settings.zoom_level || 1.0).toFixed(1);
+            
+            document.getElementById('turnSpeedSlider').value = settings.turning_speed_multiplier || 1.0;
+            document.getElementById('turnSpeedValue').textContent = (settings.turning_speed_multiplier || 1.0).toFixed(1);
+        }
+
+        document.getElementById('rotationSlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('rotationValue').textContent = value.toFixed(1);
+            updateSetting('rotation_calibration', value);
+        });
+
+        document.getElementById('zoomSlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('zoomValue').textContent = value.toFixed(1);
+            updateSetting('zoom_level', value);
+        });
+
+        document.getElementById('turnSpeedSlider').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById('turnSpeedValue').textContent = value.toFixed(1);
+            updateSetting('turning_speed_multiplier', value);
+        });
+
+        function updateSetting(key, value) {
+            settings[key] = value;
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+        }
+
+        function resetPath() {
+            fetch('/api/reset_path', { method: 'POST' })
+                .then(() => {
+                    pathPoints = [];
+                    carPosition = { x: 0, y: 0, angle: 0 };
+                    pointA = null;
+                    pointB = null;
+                    drawPath();
+                });
+        }
+
+        function drawPath() {
+            const w = canvas.width;
+            const h = canvas.height;
+            const centerX = w / 2;
+            const centerY = h / 2;
+            const zoom = settings.zoom_level || 1.0;
+
+            // Clear with dark gradient
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(w, h));
+            gradient.addColorStop(0, '#0f172a');
+            gradient.addColorStop(1, '#020617');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, w, h);
+
+            // Grid
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
+            ctx.lineWidth = 1;
+            const gridSize = 50 * zoom;
+            
+            for (let x = centerX % gridSize; x < w; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = centerY % gridSize; y < h; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // Center crosshair
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 15, centerY);
+            ctx.lineTo(centerX + 15, centerY);
+            ctx.moveTo(centerX, centerY - 15);
+            ctx.lineTo(centerX, centerY + 15);
+            ctx.stroke();
+
+            // Path trail with glow
+            if (pathPoints.length > 1) {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#3b82f6';
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                
+                for (let i = 0; i < pathPoints.length; i++) {
+                    const px = centerX + pathPoints[i].x * zoom;
+                    const py = centerY - pathPoints[i].y * zoom;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(px, py);
+                    } else {
+                        ctx.lineTo(px, py);
+                    }
+                }
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            // Point A
+            if (pointA) {
+                const ax = centerX + pointA.x * zoom;
+                const ay = centerY - pointA.y * zoom;
+                
+                ctx.fillStyle = '#34d399';
+                ctx.shadowColor = '#34d399';
+                ctx.shadowBlur = 20;
+                ctx.beginPath();
+                ctx.arc(ax, ay, 16, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 16px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('A', ax, ay);
+            }
+
+            // Point B
+            if (pointB) {
+                const bx = centerX + pointB.x * zoom;
+                const by = centerY - pointB.y * zoom;
+                
+                ctx.fillStyle = '#f87171';
+                ctx.shadowColor = '#f87171';
+                ctx.shadowBlur = 20;
+                ctx.beginPath();
+                ctx.arc(bx, by, 16, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 16px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('B', bx, by);
+            }
+
+            // Car with glow
+            const carX = centerX + carPosition.x * zoom;
+            const carY = centerY - carPosition.y * zoom;
+            const angle = -carPosition.angle * Math.PI / 180;
+
+            ctx.save();
+            ctx.translate(carX, carY);
+            ctx.rotate(angle);
+
+            ctx.shadowColor = '#f87171';
+            ctx.shadowBlur = 25;
+            ctx.fillStyle = '#f87171';
+            
+            ctx.beginPath();
+            ctx.moveTo(24, 0);
+            ctx.lineTo(-18, -14);
+            ctx.lineTo(-12, 0);
+            ctx.lineTo(-18, 14);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        function animate() {
+            drawPath();
+            requestAnimationFrame(animate);
+        }
+        animate();
+    </script>
+</body>
+</html>

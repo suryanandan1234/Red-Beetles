@@ -1,0 +1,7 @@
+flask==3.0.0
+flask-socketio==5.3.5
+python-socketio==5.10.0
+opencv-python==4.9.0.80
+pyserial==3.5
+pygame==2.5.2
+eventlet==0.35.2
