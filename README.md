@@ -1,2 +1,2 @@
-# Red-Beetles
+# Red-Beetle
 Open Source Robotic Platform
